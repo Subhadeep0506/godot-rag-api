@@ -1,0 +1,22 @@
+{
+    "http.proxySupport": "off",
+    "terminal.integrated.localEchoLatencyThreshold": -1,
+    "terminal.integrated.localEchoEnabled": "off",
+    "terminal.integrated.fontSize": 12,
+    "workbench.startupEditor": "none",
+    "editor.fontFamily": "DankMono Nerd Font",
+    "editor.fontWeight": "normal",
+    "editor.fontSize": 13,
+    "editor.lineHeight": 1.5,
+    "editor.letterSpacing": 0,
+    "debug.console.fontSize": 13,
+    "window.commandCenter": false,
+    "workbench.preferredDarkColorTheme": "Ayu Mirage Bordered",
+    "workbench.preferredLightColorTheme": "One Dark Modern Pro",
+    "workbench.iconTheme": "material-icon-theme",
+    "window.autoDetectColorScheme": true,
+    "workbench.layoutControl.enabled": false,
+    "inlineChat.mode": "preview",
+    "IDX.aI.enableInlineCompletion": true,
+    "IDX.aI.enableCodebaseIndexing": true
+}

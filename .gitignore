@@ -1,0 +1,7 @@
+.venv
+.env
+database
+dataset/rtdocs
+dataset/docs
+logs
+**/__pycache__/
