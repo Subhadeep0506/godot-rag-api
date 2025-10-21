@@ -34,28 +34,30 @@ class Query:
         memory_service: str = None,
     ):
         try:
-            self.vectorstore_retriever = self.vectorstore.as_retriever(
-                search_type="similarity",
-                search_kwargs={
-                    "k": top_k,
-                    "filter": filter,
-                },
+            self.embeddings = EmbeddingsFactory().get_embeddings(
+                "sentence-transformers", "intfloat/multilingual-e5-large-instruct"
             )
-            self.memory = MemoryFactory.get_memory_instance(
-                memory_service=memory_service,
-                session_id=session_id,
+
+            self.vector_store = VectorStoreFactory().get_vectorstore(
+                vectorstore_service="astradb",
+                embeddings=self.embeddings,
             )
-            tools = [
-                create_retriever_tool(
-                    retriever=self.vectorstore_retriever,
-                    name="Retrieval_QA",
-                    description="Retrieves relevant documents from the vector store.",
-                )
-            ]
-            return tools
+            self.prompt = ChatPromptTemplate(
+                messages=[
+                    HumanMessagePromptTemplate(
+                        prompt=PromptTemplate(
+                            input_variables=["chat_history", "context", "question"],
+                            input_types={},
+                            partial_variables={},
+                            template=constant.SYSTEM_PROMPT,
+                        ),
+                        additional_kwargs={},
+                    )
+                ],
+            )
         except Exception as e:
             logger.error(f"Error initializing query pipeline: {e}")
-            return []
+            raise Exception(e)
 
     def __initialize_reddit_query_pipeline(
         self,
