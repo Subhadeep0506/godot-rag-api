@@ -2,9 +2,8 @@ from datasets import load_dataset
 from typing import List
 from langchain.schema import Document
 from langchain.text_splitter import CharacterTextSplitter
-from api.services.logger_service import LoggerService
+from api.config.state import State
 import hashlib
-logger = LoggerService.get_logger(__name__)
 
 
 class ConversationsReader:
@@ -15,7 +14,7 @@ class ConversationsReader:
             chunk_size=1000,
             chunk_overlap=200,
         )
-        logger.info("ReadTheDocsReader initialized.")
+        State.logger.info("ParquetReader initialized.")
 
     def load(self, dataset_name: str):
         try:
@@ -38,4 +37,5 @@ class ConversationsReader:
             docs = self.text_splitter.split_documents(docs)
             return docs
         except Exception as e:
+            State.logger.error(f"Error loading dataset {dataset_name}: {e}")
             raise Exception(f"Error loading dataset {dataset_name}: {e}")

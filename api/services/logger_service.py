@@ -1,88 +1,75 @@
-import logging
 import os
-
+import sys
+import threading
 from datetime import datetime
-
-
-class HTTPFilter(logging.Filter):
-    """Filter out HTTP-related log messages"""
-
-    def filter(self, record):
-        http_keywords = ["http", "https", "GET", "POST", "PUT", "DELETE"]
-        return not any(
-            keyword.lower() in record.getMessage().lower() for keyword in http_keywords
-        )
+from loguru import logger
+import logfire
 
 
 class LoggerService:
     _instance = None
-    _log_dir = "logs"
+    _lock = threading.Lock()
 
     def __new__(cls):
         if not cls._instance:
-            cls._instance = super(LoggerService, cls).__new__(cls)
-            cls._setup_logger()
+            with cls._lock:
+                if not cls._instance:
+                    cls._instance = super(LoggerService, cls).__new__(cls)
+                    cls._instance._setup_logger()
         return cls._instance
 
-    @classmethod
-    def _setup_logger(cls):
-        # Ensure logs directory exists
-        os.makedirs(cls._log_dir, exist_ok=True)
-
-        # Create a formatter
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+    def _setup_logger(self):
+        logger.remove()
+        try:
+            logfire.configure(
+                token=os.getenv("LOGFIRE_TOKEN"),
+                send_to_logfire=True,
+                service_name=os.getenv("LOGFIRE_SERVICE_NAME", "godot-rag-api"),
+                service_version=os.getenv("LOGFIRE_SERVICE_VERSION", "1.0.0"),
+                environment=os.getenv("ENVIRONMENT", "development"),
+            )
+            # Add Logfire handler to loguru
+            logger.configure(handlers=[logfire.loguru_handler()])
+        except Exception as e:
+            print(f"Warning: Failed to configure Logfire: {e}")
+        
+        logger.add(
+            sys.stderr,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            backtrace=True,
         )
 
-        # Root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
-
-        # Clear existing handlers
-        root_logger.handlers.clear()
-        http_filter = HTTPFilter()
-        # Console Handler
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        console_handler.addFilter(http_filter)
-        root_logger.addHandler(console_handler)
-
-        # File Handler with daily log rotation
-        log_filename = os.path.join(
-            cls._log_dir, f'app_{datetime.now().strftime("%Y%m%d")}.log'
-        )
-        file_handler = logging.FileHandler(log_filename)
-        file_handler.setFormatter(formatter)
-        file_handler.addFilter(http_filter)
-        root_logger.addHandler(file_handler)
-
     @staticmethod
-    def get_logger(name=None):
+    def get_logger(name: str | None = None):
         """
-        Get a logger with optional name.
-        If no name is provided, returns the root logger.
+        Return a loguru logger bound to an optional name.
+        If name is None, returns the global logger.
         """
-        return logging.getLogger(name) if name else logging.getLogger()
+        return logger.bind(name=name) if name else logger
 
-    @staticmethod
-    def set_log_level(level):
+    def log_system_info(self):
         """
-        Set the logging level.
-        Args:
-            level (str or int): Logging level (e.g., 'DEBUG', 'INFO', logging.DEBUG)
+        Log and return basic system information as a dictionary
         """
-        logging.getLogger().setLevel(level)
+        import platform
 
-    @staticmethod
-    def log_system_info():
-        """
-        Log basic system information
-        """
-        logger = LoggerService.get_logger()
-        logger.info("Application Logger Initialized")
-        logger.info(f"Log Directory: {LoggerService._log_dir}")
+        system_info = {
+            "logger_initialized": True,
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": platform.python_version(),
+            "architecture": platform.architecture()[0],
+            "processor": platform.processor(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "cpu_count": os.cpu_count(),
+            "thread_count": threading.active_count(),
+            "ram": getattr(platform, "machine", lambda: "Unknown")(),
+            "used_memory": getattr(sys, "getsizeof", lambda x: "Unknown")(sys.modules),
+            "disk": getattr(platform, "node", lambda: "Unknown")(),
+            "disk_used": getattr(platform, "platform", lambda: "Unknown")(),
+        }
 
+        lg = self.get_logger()
+        lg.info("Application Logger Initialized", extra={"system_info": system_info})
 
-# Create a singleton instance
-logger_service = LoggerService()
+        return system_info

@@ -7,9 +7,7 @@ from langchain_mistralai.chat_models import ChatMistralAI
 from langchain_groq.chat_models import ChatGroq
 
 from ..enums.enums import LLMService
-from .logger_service import LoggerService
-
-logger = LoggerService.get_logger(__name__)
+from api.config.state import State
 
 
 class LLMFactory:
@@ -31,14 +29,14 @@ class LLMFactory:
             llm_service = LLMService.GROQ.value
 
         if llm_service == LLMService.COHERE.value:
-            logger.info("Using Cohere chat model.")
+            State.logger.info("Using Cohere chat model.")
             return ChatCohere(
                 model=model_name,
                 temperature=temperature,
                 cohere_api_key=os.environ["COHERE_API_KEY"],
             )
         elif llm_service == LLMService.GEMINI.value:
-            logger.info("Using Gemini chat model.")
+            State.logger.info("Using Gemini chat model.")
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 api_key=os.environ["GEMINI_API_KEY"],
@@ -46,14 +44,14 @@ class LLMFactory:
                 temperature=temperature,
             )
         elif llm_service == LLMService.MISTRAL.value:
-            logger.info("Using Mistral chat model.")
+            State.logger.info("Using Mistral chat model.")
             return ChatMistralAI(
                 model=model_name,
                 api_key=os.environ["MISTRAL_API_KEY"],
                 temperature=temperature,
             )
         elif llm_service == LLMService.GROQ.value:
-            logger.info("Using Groq chat model.")
+            State.logger.info("Using Groq chat model.")
             return ChatGroq(
                 model=model_name,
                 api_key=os.environ["GROQ_API_KEY"],

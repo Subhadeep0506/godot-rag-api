@@ -5,9 +5,7 @@ from langchain.memory.chat_message_histories.upstash_redis import (
 )
 from langchain_astradb.chat_message_histories import AstraDBChatMessageHistory
 from ..enums.enums import MemoryService
-from .logger_service import LoggerService
-
-logger = LoggerService.get_logger(__name__)
+from api.config.state import State
 
 
 class MemoryFactory:
@@ -17,14 +15,14 @@ class MemoryFactory:
         session_id: str,
     ) -> Union[UpstashRedisChatMessageHistory, AstraDBChatMessageHistory]:
         if memory_service == MemoryService.UPSTASH.value:
-            logger.info("Using Upstash Redis memory service.")
+            State.logger.info("Using Upstash Redis memory service.")
             return UpstashRedisChatMessageHistory(
                 session_id=session_id,
                 url=os.getenv("UPSTASH_REDIS_URL"),
                 token=os.getenv("UPSTASH_REDIS_TOKEN"),
             )
         elif memory_service == MemoryService.ASTRADB.value:
-            logger.info("Using AstraDB memory service.")
+            State.logger.info("Using AstraDB memory service.")
             return AstraDBChatMessageHistory(
                 session_id=session_id,
                 collection_name="chat_history",

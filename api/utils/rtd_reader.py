@@ -1,8 +1,6 @@
 from langchain.document_loaders.readthedocs import ReadTheDocsLoader
 from langchain.text_splitter import CharacterTextSplitter
-from api.services.logger_service import LoggerService
-
-logger = LoggerService.get_logger(__name__)
+from api.config.state import State
 
 
 class ReadTheDocsReader:
@@ -13,7 +11,7 @@ class ReadTheDocsReader:
             chunk_size=1000,
             chunk_overlap=200,
         )
-        logger.info("ReadTheDocsReader initialized.")
+        State.logger.info("ReadTheDocsReader initialized.")
 
     def __load_directory(self, directory: str):
         self.loader = ReadTheDocsLoader(
@@ -26,17 +24,22 @@ class ReadTheDocsReader:
         return docs
 
     def __apply_metadata(self, docs):
-        categories = ["about", "classes", "community", "engine_details", "getting_started", "tutorials"]
+        categories = [
+            "about",
+            "classes",
+            "community",
+            "engine_details",
+            "getting_started",
+            "tutorials",
+        ]
         for doc in docs:
-            category, sub_category = self.__extract_categories(doc.metadata["source"])
+            category, sub_category, tags = self.__extract_categories(doc.metadata["source"])
             if category in categories:
                 doc.metadata["category"] = category
             if sub_category:
                 doc.metadata["sub_category"] = sub_category
-            # metadata = doc.metadata
-            # cat = metadata["source"].split("latest/")[-1].split("/")[0]
-            # if cat in categories:
-            #     doc.metadata["category"] = cat
+            if tags:
+                doc.metadata["tags"] = tags
         return docs
 
     def __extract_categories(self, path):
@@ -52,7 +55,14 @@ class ReadTheDocsReader:
             if not components[1].endswith(".html"):
                 subcategory = components[1]
 
-        return category, subcategory
+        return (
+            category,
+            subcategory,
+            [
+                component.split(".")[0] if component.endswith(".html") else component
+                for component in components
+            ],
+        )
 
     def load(self, directory: str):
         """

@@ -1,165 +1,144 @@
 import api.config.constant as constant
 
-from langchain_astradb import AstraDBVectorStore
-from langchain_milvus import Milvus
-from typing import Union, Dict, List
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.tools.retriever import create_retriever_tool
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-
-from api.services.logger_service import LoggerService
-from api.services.memory_factory import MemoryFactory
-from api.services.llm_factory import ChatCohere, ChatGoogleGenerativeAI
-from api.services.reddit import RedditClient
-
-
-logger = LoggerService.get_logger(__name__)
+from fastapi import HTTPException
+from typing import Dict, List
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.schema import Document
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    PromptTemplate,
+    HumanMessagePromptTemplate,
+)
+from langgraph.graph import START, StateGraph, END
+import api.config.constant as constant
+from api.config.state import State
+from api.core.tools import *
+from api.schema.ai_state import AIState
+from api.models.chat_session import ChatSession
 
 
 class Query:
-    def __init__(self, vectorstore: Union[AstraDBVectorStore, Milvus]):
-        self.vectorstore = vectorstore
-        self.vectorstore_retriever = None
-        self.reddit_retriever = None
-        self.memory = None
-        self.reddit_loader = None
-        self.username = None
+    def __init__(self):
+        self.prompt = None
+        self.reddit_prompt = None
+
+        self.__initialize_query_pipeline()
+        self.__initialize_reddit_query_pipeline()
 
     def __initialize_query_pipeline(
         self,
-        filter: Dict[str, str] = None,
-        top_k: int = 4,
-        session_id: str = None,
-        memory_service: str = None,
     ):
         try:
-            self.embeddings = EmbeddingsFactory().get_embeddings(
-                "sentence-transformers", "intfloat/multilingual-e5-large-instruct"
-            )
-
-            self.vector_store = VectorStoreFactory().get_vectorstore(
-                vectorstore_service="astradb",
-                embeddings=self.embeddings,
-            )
             self.prompt = ChatPromptTemplate(
                 messages=[
                     HumanMessagePromptTemplate(
                         prompt=PromptTemplate(
                             input_variables=["chat_history", "context", "question"],
-                            input_types={},
-                            partial_variables={},
                             template=constant.SYSTEM_PROMPT,
                         ),
-                        additional_kwargs={},
                     )
                 ],
             )
         except Exception as e:
-            logger.error(f"Error initializing query pipeline: {e}")
-            raise Exception(e)
+            State.logger.error(f"Error initializing query pipeline: {e}")
+            raise Exception(f"Error initializing query pipeline: {e}")
 
-    def __initialize_reddit_query_pipeline(
-        self,
-        username: str,
-        k: int = 5,
-        relevance: str = "hot",
-        session_id: str = None,
-        memory_service: str = None,
-    ):
+    def __initialize_reddit_query_pipeline(self):
         try:
-            if self.reddit_loader is None:
-                user_agent = f"extractor by {username}"
-                self.reddit_loader = RedditClient(
-                    user_agent=user_agent,
-                )
-            elif self.username and self.username != username:
-                user_agent = f"extractor by {username}"
-                self.reddit_loader = RedditClient(
-                    user_agent=user_agent,
-                )
-            self.reddit_retriever = self.reddit_loader.as_retriever(
-                k=k, relevance=relevance
+            self.reddit_prompt = ChatPromptTemplate(
+                messages=[
+                    HumanMessagePromptTemplate(
+                        prompt=PromptTemplate(
+                            input_variables=["chat_history", "context", "question"],
+                            template=constant.REDDIT_SYSTEM_PROMPT,
+                        ),
+                    )
+                ],
             )
-            self.memory = MemoryFactory.get_memory_instance(
-                memory_service=memory_service,
-                session_id=session_id,
-            )
-            tools = [
-                create_retriever_tool(
-                    retriever=self.reddit_retriever,
-                    name="Reddit_QA",
-                    description="Retrieves relevant threads from Godot and Gamedev subreddit.",
-                )
-            ]
-            return tools
         except Exception as e:
-            logger.error(f"Error initializing Reddit query pipeline: {e}")
-            return []
+            State.logger.error(f"Error initializing Reddit query pipeline: {e}")
+            raise Exception(f"Error initializing Reddit query pipeline: {e}")
 
-    def __get_message_history(self):
-        messages = self.memory.messages[-4:] if self.memory.messages else []
-        return messages
+    def __flatten_sources(self, sources: List[Document]) -> List[Dict]:
+        final_sources = []
+        for source in sources:
+            src = source.metadata.get("source", "Unknown Source")
+            contents = source.page_content
+            final_sources.append(
+                {
+                    "source": src,
+                    "content": contents,
+                }
+            )
+        return final_sources
 
-    def __add_message_history(
-        self,
-        query: str,
-        response: str,
-    ) -> None:
-        self.memory.add_user_message(query)
-        self.memory.add_ai_message(response)
+    def __flatten_reddit_sources(self, sources: List[Document]) -> List[Dict]:
+        final_sources = []
+        for source in sources:
+            src = source.metadata.get("author", "Unknown Author")
+            contents = source.page_content
+            final_sources.append(
+                {
+                    "author": src,
+                    "content": contents,
+                }
+            )
+        return final_sources
 
     def generate_response(
         self,
         query: str,
         category: str = None,
         sub_category: str = None,
-        source: str = None,
         top_k: int = 4,
+        temperature: float = 0.0,
         session_id: str = None,
-        memory_service: str = None,
-        llm: Union[ChatCohere, ChatGoogleGenerativeAI] = None,
+        model_name: str = None,
+        memory_service: str = "astradb",
+        db=None,
     ):
         try:
-            filter = {
-                "category": category,
-                "sub_category": sub_category,
-                "source": source,
-            }
-            clean_filter = {k: v for k, v in filter.items() if v}
-            tools = self.__initialize_query_pipeline(
-                filter=clean_filter,
-                top_k=top_k,
+            session = db.query(ChatSession).filter_by(session_id=session_id).first()
+            if not session:
+                raise HTTPException(
+                    status_code=404, detail=f"Session with id {session_id} not found."
+                )
+            graph_builder = StateGraph(AIState).add_sequence(
+                [retrieve, generate, add_message_history]
+            )
+            graph_builder.add_edge(START, "retrieve")
+            graph_builder.add_edge("retrieve", "generate")
+            graph_builder.add_edge("generate", "add_message_history")
+            graph_builder.add_edge("add_message_history", END)
+            graph = graph_builder.compile()
+
+            result = graph.invoke(
+                {
+                    "question": query,
+                    "session_id": session_id,
+                    "category": category,
+                    "sub_category": sub_category,
+                    "memory_service": memory_service,
+                    "model_name": model_name,
+                    "temperature": temperature,
+                    "top_k": top_k,
+                    "vector_store": State.vector_store,
+                    "prompt": self.prompt,
+                }
+            )
+
+            message = State.message_controller.add_message(
+                db=db,
                 session_id=session_id,
-                memory_service=memory_service,
+                content={"question": query, "answer": result["answer"]},
+                sources=self.__flatten_sources(sources=result["context"]),
             )
-            history_messages = self.__get_message_history()
-            PROMPT = ChatPromptTemplate.from_messages(
-                [
-                    SystemMessage(content=constant.SYSTEM_PROMPT),
-                    *history_messages,
-                    HumanMessage(content=query),
-                    MessagesPlaceholder(variable_name="agent_scratchpad"),
-                ]
-            )
-            agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=PROMPT)
-            agent_executor = AgentExecutor(
-                agent=agent,
-                tools=tools,
-                verbose=False,
-                handle_parsing_errors=True,
-                return_intermediate_steps=True,
-            )
-            response = agent_executor.invoke(
-                input={
-                    "input": query,
-                },
-                return_only_outputs=True,
-            )
-            self.__add_message_history(query=query, response=response["output"])
-            return response
+
+            return message
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Error in response generation: {e}")
+            State.logger.error(f"Error in response generation: {e}")
             return {
                 "output": f"Error generating response {e}",
                 "intermediate_steps": [],
@@ -170,46 +149,53 @@ class Query:
         query: str,
         username: str,
         top_k: int = 4,
+        temperature: float = 0.0,
         relevance: str = "hot",
+        memory_service: str = "astradb",
         session_id: str = None,
-        memory_service: str = None,
-        llm: Union[ChatCohere, ChatGoogleGenerativeAI] = None,
+        model_name: str = None,
+        db=None,
     ):
         try:
-            tools = self.__initialize_reddit_query_pipeline(
-                username=username,
-                k=top_k,
-                relevance=relevance,
+            session = db.query(ChatSession).filter_by(session_id=session_id).first()
+            if not session:
+                raise HTTPException(
+                    status_code=404, detail=f"Session with id {session_id} not found."
+                )
+
+            graph_builder = StateGraph(AIState).add_sequence(
+                [retrieve_with_reddit, generate, add_message_history]
+            )
+            graph_builder.add_edge(START, "retrieve_with_reddit")
+            graph_builder.add_edge("retrieve_with_reddit", "generate")
+            graph_builder.add_edge("generate", "add_message_history")
+            graph_builder.add_edge("add_message_history", END)
+            graph = graph_builder.compile()
+
+            result = graph.invoke(
+                {
+                    "question": query,
+                    "session_id": session_id,
+                    "memory_service": memory_service,
+                    "reddit_username": username,
+                    "reddit_relevance": relevance,
+                    "reddit_top_k": top_k,
+                    "temperature": temperature,
+                    "model_name": model_name,
+                    "prompt": self.reddit_prompt,
+                }
+            )
+            message = State.message_controller.add_message(
+                db=db,
                 session_id=session_id,
-                memory_service=memory_service,
+                content={"question": query, "answer": result["answer"]},
+                sources=self.__flatten_reddit_sources(sources=result["context"]),
             )
-            history_messages = self.__get_message_history()
-            PROMPT = ChatPromptTemplate.from_messages(
-                [
-                    SystemMessage(content=constant.REDDIT_SYSTEM_PROMPT),
-                    *history_messages,
-                    HumanMessage(content=query),
-                    MessagesPlaceholder(variable_name="agent_scratchpad"),
-                ]
-            )
-            agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=PROMPT)
-            agent_executor = AgentExecutor(
-                agent=agent,
-                tools=tools,
-                verbose=False,
-                handle_parsing_errors=True,
-                return_intermediate_steps=True,
-            )
-            response = agent_executor.invoke(
-                input={
-                    "input": query,
-                },
-                return_only_outputs=True,
-            )
-            self.__add_message_history(query=query, response=response["output"])
-            return response
+            return message
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Error generating response: {e}")
+            State.logger.error(f"Error generating response: {e}")
             return {
                 "output": f"Error generating response {e}",
                 "intermediate_steps": [],

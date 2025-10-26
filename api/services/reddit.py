@@ -15,7 +15,7 @@ class RedditClient:
             client_secret=os.getenv("REDDIT_APP_SECRET"),
             user_agent=user_agent,
         )
-        self.reddit_search_client = self.reddit_client.subreddit("godot+gamedev").search
+        self.reddit_search_client = self.reddit_client.subreddit("godot").search
 
     def as_retriever(self, k: int, relevance: str) -> "RedditRetriever":
         """
@@ -58,7 +58,7 @@ class RedditClient:
                 ]
             )
             metadata = {
-                "author": post.author,
+                "author": post.author.name,
                 "score": post.score,
                 "upvote_ratio": post.upvote_ratio,
                 "num_comments": post.num_comments,

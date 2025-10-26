@@ -2,14 +2,11 @@ import os
 from typing import Union
 
 from langchain_milvus.vectorstores import Milvus
-from langchain_postgres.vectorstores import PGVector
 from langchain_astradb import AstraDBVectorStore
 from pymilvus import DataType, MilvusClient
 
 from ..enums.enums import VectorStoreService
-from .logger_service import LoggerService
-
-logger = LoggerService.get_logger(__name__)
+from api.config.state import State
 
 
 class VectorStoreFactory:
@@ -19,7 +16,7 @@ class VectorStoreFactory:
         embeddings,
     ) -> Union[AstraDBVectorStore, Milvus]:
         if vectorstore_service == VectorStoreService.ASTRADB.value:
-            logger.info("Using AstraDB")
+            State.logger.info("Using AstraDB")
             try:
                 return AstraDBVectorStore(
                     collection_name=os.environ["ASTRADB_COLLECTION_NAME"],
@@ -28,15 +25,15 @@ class VectorStoreFactory:
                     token=os.environ["ASTRA_TOKEN"],
                 )
             except Exception as e:
-                logger.error("Error connecting to AstraDB: %s", e)
+                State.logger.error("Error connecting to AstraDB: %s", e)
         elif vectorstore_service == VectorStoreService.MILVUS.value:
-            logger.info("Using Milvus")
+            State.logger.info("Using Milvus")
             client = MilvusClient(
                 uri=os.environ["MILVUS_DATABASE_URI"],
                 token=os.environ["MILVUS_ACCESS_TOKEN"],
             )
             if not client.has_collection(os.environ["MILVUS_COLLECTION_NAME"]):
-                logger.info("Creating Milvus collection")
+                State.logger.info("Creating Milvus collection")
                 try:
                     schema = client.create_schema(
                         enable_dynamic_field=True, description=""
@@ -70,7 +67,7 @@ class VectorStoreFactory:
                         index_params=index_params,
                     )
                 except Exception as e:
-                    logger.error("Error creating Milvus collection: %s", e)
+                    State.logger.error("Error creating Milvus collection: %s", e)
             return Milvus(
                 embedding_function=embeddings,
                 collection_name=os.environ["MILVUS_COLLECTION_NAME"],
