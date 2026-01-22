@@ -79,7 +79,7 @@ class Query:
             contents = source.page_content
             final_sources.append(
                 {
-                    "author": src,
+                    "source": f"Reddit - {src}",  # Use 'source' field for consistency with frontend
                     "content": contents,
                 }
             )
